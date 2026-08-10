@@ -37,23 +37,23 @@ Here is how the environment is structured:
 
 ### 1. Terraform Infrastructure Provisioning
 Successfully spun up all 12 AWS resources with Terraform outputs.
-![Terraform Outputs](images/01-terraform-outputs.png)
+![Terraform Outputs](01-terraform-outputs.png)
 
 ### 2. Nginx Target Verification
 Confirmed the web target was bootstrapped and reachable via HTTP (`200 OK`).
-![Target Verification](images/02-target-http-verification.png)
+![Target Verification](02-target-http-verification.png)
 
 ### 3. Red Team API Reconnaissance
 Executed discovery calls against the EC2 management plane using the AWS CLI.
-![Red Team Recon](images/03-redteam-recon-ec2-api.png)
+![Red Team Recon](03-redteam-recon-ec2-api.png)
 
 ### 4. CloudTrail Telemetry Capture
 Verified that CloudTrail caught the API calls with exact timestamps, source IPs, and IAM identities.
-![CloudTrail Telemetry](images/04-blueteam-cloudtrail-telemetry.png)
+![CloudTrail Telemetry](04-blueteam-cloudtrail-telemetry.png)
 
 ### 5. S3 Log Delivery
 Checked the dedicated S3 bucket to ensure raw CloudTrail logs were being delivered cleanly.
-![S3 Raw Logs](images/05-s3-cloudtrail-raw-logs.png)
+![S3 Raw Logs](05-s3-cloudtrail-raw-logs.png)
 
 ---
 
