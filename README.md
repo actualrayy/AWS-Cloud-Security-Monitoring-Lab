@@ -1,76 +1,229 @@
-AWS Cloud Security & Purple Team Automation Lab
-This repository contains a hands-on Purple Team lab I built to test automated threat detection and incident response in AWS. I used Terraform to provision the infrastructure as code (IaC) and wrote a custom Python (Boto3) Lambda function to act as the Blue Team, automatically reverting insecure environment changes in near real-time.
 
-The goal of this project was to execute Red Team attacks mapped to the MITRE ATT&CK framework and prove that event-driven architecture can neutralize threats faster than manual human intervention.
+# AWS Cloud Security & Purple Team Automation Lab
 
-🏗️ Architecture Overview
-Here is a high-level look at the event pipeline I set up:
+I built this lab to get hands-on experience with Infrastructure as Code (IaC) and cloud security monitoring on AWS. I started by building a small AWS environment with Terraform, then used it to simulate different security-related activities and see how they appeared in AWS telemetry.
 
-Plaintext
-[ Red Team Attack (AWS CLI) ] 
-          │
-          ▼
-    [ AWS CloudTrail ] (Logs the API call)
-          │
-          ▼
-   [ Amazon EventBridge ] (Filters for specific attack patterns)
-          │
-          ▼
-     [ AWS Lambda ] (My Python remediation script)
-          │
-          ▼
- [ Target Resource ] (Lambda instantly secures the resource)
-🚀 Lab Scenarios & Execution
-Scenario A: Network Ingress Exposure & Automated Remediation
-MITRE ATT&CK: T1190 — Exploit Public-Facing Application
+I later extended the lab with EventBridge and a Python Lambda function so that selected security events could trigger an automated response.
 
-The Attack: I acted as the Red Team by injecting a rogue ingress rule into my web server's security group, exposing MySQL (Port 3306) to the entire public internet (0.0.0.0/0).
+The overall goal was to understand the workflow from both sides:
 
-The Defense: EventBridge caught the AuthorizeSecurityGroupIngress API call in CloudTrail and instantly triggered my Lambda function. The Python script extracted the security group ID and the specific rogue port, and automatically issued a revoke command.
+**Red Team activity → CloudTrail telemetry → Detection → Investigation → Response**
 
-Evidence & Verification:
+---
 
-Executing the Red Team Attack:
+## Architecture
 
-Verifying the Blue Team Automation (Port 3306 is gone):
+The environment is structured around a custom VPC and an AWS logging and response pipeline:
 
-CloudWatch Logs showing the Python execution success:
+* **Network:** Custom VPC (`10.0.0.0/16`) with public (`10.0.1.0/24`) and private (`10.0.2.0/24`) subnets behind an Internet Gateway.
+* **Target Server:** An Ubuntu 22.04 EC2 instance (`t3.micro`) automatically bootstrapped with Nginx using Terraform `user_data`.
+* **Security Controls:** Security Group controlling inbound access to the target.
+* **Infrastructure:** Terraform manages the AWS resources so the lab can be recreated and destroyed when needed.
+* **Logging:** Multi-region AWS CloudTrail records management-plane activity and delivers the logs to a locked-down S3 bucket.
+* **Detection:** Amazon EventBridge filters selected CloudTrail events.
+* **Response:** A Python/Boto3 AWS Lambda function automatically remediates a selected security-group change.
 
-Scenario B: Defense Evasion (Telemetry Blinding)
-MITRE ATT&CK: T1562.001 — Impair Defences: Disable or Modify Tools
+### Event Pipeline
 
-The Attack: To simulate an attacker covering their tracks, I disabled my active CloudTrail stream using aws cloudtrail stop-logging.
+```text
+[ Red Team Activity / AWS CLI ]
+              │
+              ▼
+       [ AWS CloudTrail ]
+              │
+              ▼
+      [ Amazon EventBridge ]
+              │
+              ▼
+         [ AWS Lambda ]
+        Python / Boto3
+              │
+              ▼
+      [ Target AWS Resource ]
+```
 
-The Defense: I queried the trail status to confirm IsLogging dropped to false, simulating the monitoring blind spot, before manually restoring the telemetry baseline so the Blue Team operations could resume.
+---
 
-Evidence:
+## Tools Used
 
-Shutting down CloudTrail:
+* **IaC:** Terraform
+* **Cloud Platform:** AWS
+* **Compute:** EC2, Lambda
+* **Networking:** VPC, Subnets, Route Tables, Internet Gateway, Security Groups
+* **Logging:** CloudTrail, S3
+* **Event Detection:** EventBridge
+* **Monitoring:** CloudWatch
+* **Identity:** IAM
+* **Target Services:** Nginx, Ubuntu 22.04 LTS
+* **Programming:** Python, Boto3
+* **CLI Tools:** AWS CLI, Bash
 
-Scenario C: IAM Persistence
-MITRE ATT&CK: T1098.001 — Account Manipulation: Additional Credentials
+---
 
-The Attack: I simulated an attacker establishing persistent backdoor access by generating a set of long-term IAM access keys for a compromised user account using the CLI.
+## What I Did
 
-Evidence:
+### 1. Built the Infrastructure
 
-Generating rogue access keys:
+I used Terraform to provision the AWS environment, including:
 
-🛠️ Technology Stack
-Infrastructure as Code: Terraform (AWS Provider v6.47.0)
+* VPC
+* public and private subnets
+* route tables
+* Internet Gateway
+* security groups
+* EC2 instance
+* Nginx
+* S3 log bucket
+* CloudTrail
 
-Cloud Platform: Amazon Web Services (AWS)
+The infrastructure could be created from scratch with Terraform rather than manually configuring each resource through the AWS console.
 
-Compute / Scripting: AWS Lambda (Python 3.10)
+---
 
-Monitoring & Routing: Amazon EventBridge, AWS CloudTrail, Amazon CloudWatch
+### 2. Built the Telemetry Baseline
 
-Environment: Ubuntu Linux, AWS CLI v2
+I configured AWS CloudTrail to record management-plane API activity across regions and deliver the logs to an S3 bucket.
 
-📜 Automated Remediation Logic
-Here is the core Python logic I wrote for the Lambda function. It parses the nested JSON payload from CloudTrail, maps the keys to what Boto3 expects, and revokes the specific rule without touching legitimate traffic like ports 80 or 22.
+I verified that the CloudTrail `.json.gz` files were being delivered successfully and that the events contained information such as:
 
-Python
+* API calls
+* timestamps
+* source IP addresses
+* IAM identities
+* request parameters
+
+This gave me a baseline for investigating activity performed against the environment.
+
+---
+
+### 3. Simulated Cloud Reconnaissance
+
+I used the AWS CLI to perform basic reconnaissance against the environment.
+
+For example:
+
+```bash
+aws ec2 describe-instances
+```
+
+This allowed me to see what kind of information could be obtained through AWS management-plane API calls and how that activity appeared in CloudTrail.
+
+---
+
+# 🔴 Security Scenarios
+
+## Scenario A — Security Group Exposure & Automated Remediation
+
+### Red Team Activity
+
+I simulated an attacker gaining enough access to modify a security group and adding an unnecessary inbound rule exposing MySQL port `3306` to the internet:
+
+```text
+TCP 3306 → 0.0.0.0/0
+```
+
+The change was performed only against my own lab environment.
+
+### Detection
+
+The security-group modification generated an AWS API event:
+
+```text
+AuthorizeSecurityGroupIngress
+```
+
+CloudTrail recorded the event, including the affected security group and the request parameters.
+
+I configured EventBridge to detect this type of activity and trigger my Lambda function.
+
+### Automated Response
+
+The Lambda function was written in Python using Boto3.
+
+When triggered, it:
+
+1. Reads the CloudTrail event.
+2. Extracts the security-group ID.
+3. Identifies the added IP permission.
+4. Builds the corresponding Boto3 request.
+5. Revokes the unwanted rule.
+6. Logs the result to CloudWatch.
+
+The function removes the specific rule instead of replacing the entire security-group configuration, so legitimate rules are left untouched.
+
+### Result
+
+The `3306` rule was automatically removed after the simulated change.
+
+I verified the result by checking both the security-group configuration and the Lambda execution logs.
+
+---
+
+## Scenario B — Disabling CloudTrail
+
+### Red Team Activity
+
+For this scenario, I wanted to see what happens when an attacker tries to interfere with the system providing the security telemetry.
+
+I temporarily stopped CloudTrail logging:
+
+```bash
+aws cloudtrail stop-logging
+```
+
+I then checked its status:
+
+```bash
+aws cloudtrail get-trail-status
+```
+
+The result showed:
+
+```text
+IsLogging: false
+```
+
+This demonstrated a simple but important problem: if an attacker is able to disable the telemetry source, the visibility provided by that source can be interrupted.
+
+After the test, I manually restored CloudTrail logging because this was a controlled lab experiment.
+
+### Result
+
+The experiment successfully demonstrated the monitoring gap created when CloudTrail logging is disabled.
+
+This scenario is currently a demonstration rather than a fully automated defense.
+
+---
+
+## Scenario C — IAM Persistence
+
+### Red Team Activity
+
+I also simulated an attacker attempting to establish persistent access to an IAM identity by creating a new set of long-term access keys for a test user.
+
+The purpose was to investigate what this type of activity looks like from the Blue Team perspective.
+
+### Investigation
+
+I used CloudTrail to examine the resulting event and identify:
+
+* the IAM identity involved
+* the API call
+* timestamp
+* source IP
+* affected IAM resource
+
+This gave me a practical example of how IAM activity can be investigated through AWS management-plane telemetry.
+
+---
+
+# 🐍 Automated Remediation
+
+The automated response for Scenario A was implemented using AWS Lambda, Python, and Boto3.
+
+The function parses the CloudTrail event and extracts the information required to revoke the specific security-group permission.
+
+```python
 import boto3
 
 def lambda_handler(event, context):
@@ -81,7 +234,7 @@ def lambda_handler(event, context):
         group_id = detail['requestParameters']['groupId']
         items = detail['requestParameters']['ipPermissions']['items']
         
-        print(f"🚨 ALERT: Unauthorized ingress rule added to {group_id}. Reverting...")
+        print(f"ALERT: Unauthorized ingress rule added to {group_id}. Reverting...")
         
         for item in items:
             try:
@@ -91,7 +244,7 @@ def lambda_handler(event, context):
                 
                 ip_ranges = [
                     {'CidrIp': r['cidrIp']} 
-                    for r in item.get('ipRanges', {}).get('items', []) 
+                    for r in item.get('ipRanges', {}).get('items', [])
                     if 'cidrIp' in r
                 ]
                 
@@ -99,23 +252,154 @@ def lambda_handler(event, context):
                     'IpProtocol': str(protocol),
                     'IpRanges': ip_ranges
                 }
+                
                 if from_port is not None:
                     permission['FromPort'] = int(from_port)
+                
                 if to_port is not None:
                     permission['ToPort'] = int(to_port)
-                    
+                
                 response = ec2.revoke_security_group_ingress(
                     GroupId=group_id,
                     IpPermissions=[permission]
                 )
-                print(f"✅ SUCCESS: Automatically reverted rogue rule: {response}")
+                
+                print(f"SUCCESS: Automatically reverted rogue rule: {response}")
                 return {"status": "success"}
                 
             except Exception as e:
-                print(f"❌ ERROR: Failed to revert rule: {e}")
-                return {"status": "error", "message": str(e)}
-🧹 Infrastructure Clean-Up
-To prevent unexpected billing on my AWS account, I destroyed all the provisioned infrastructure once the lab scenarios were completed:
+                print(f"ERROR: Failed to revert rule: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+```
 
-Bash
+One part I had to pay attention to was the structure of the CloudTrail event. The information needed by the Lambda function was nested inside the request parameters, so the function had to extract it and convert it into the format expected by Boto3.
+
+---
+
+# 📸 Screenshots & Proof
+
+### 1. Terraform Infrastructure Provisioning
+
+Successfully provisioned the AWS infrastructure using Terraform.
+
+### 2. Nginx Target Verification
+
+Confirmed that the Nginx web server was automatically installed and reachable over HTTP with a `200 OK` response.
+
+### 3. Red Team API Reconnaissance
+
+Executed AWS CLI discovery calls against the test environment.
+
+### 4. CloudTrail Telemetry Capture
+
+Verified that the API activity appeared in CloudTrail with timestamps, source IPs, and IAM identity information.
+
+### 5. S3 Log Delivery
+
+Verified that the raw CloudTrail `.json.gz` files were being delivered to the S3 bucket.
+
+### 6. Security Group Detection
+
+Captured the unauthorized `AuthorizeSecurityGroupIngress` event that triggered the detection workflow.
+
+### 7. Automated Remediation
+
+Verified through the Lambda logs and AWS console that the unwanted `3306` rule was removed.
+
+### 8. CloudTrail Defense-Evasion Test
+
+Captured the CloudTrail status showing:
+
+```text
+IsLogging: false
+```
+
+### 9. IAM Activity Investigation
+
+Captured the CloudTrail event generated by the test IAM credential-creation activity.
+
+---
+
+# 📚 What I Learned
+
+This project helped me understand cloud security from a more practical perspective.
+
+My earlier security projects focused mainly on network detection and SIEM/SOAR workflows. With this project, I wanted to understand how those ideas translate to AWS and cloud infrastructure.
+
+One thing I found particularly useful was seeing how a relatively simple AWS action can produce a detailed CloudTrail event containing information that can later be used for investigation.
+
+I also learned how EventBridge and Lambda can be combined to react to security-related activity without requiring a continuously running server.
+
+The CloudTrail test also showed me the other side of monitoring: if the logging mechanism itself is disabled, the visibility it provides can disappear. That made the difference between simply collecting logs and actually designing a resilient security monitoring system much clearer to me.
+
+---
+
+# ⚠️ Limitations
+
+This project is a controlled personal lab rather than a production security system.
+
+Some current limitations are:
+
+* The attack scenarios are simulations performed against infrastructure under my control.
+* CloudTrail provides management-plane telemetry and does not provide complete network-level visibility.
+* The CloudTrail disabling scenario currently requires manual restoration.
+* The IAM persistence scenario focuses on telemetry and investigation rather than automated credential removal.
+* Automated remediation is currently implemented for the security-group scenario.
+
+These limitations also give me clear areas to explore in future versions.
+
+---
+
+# 🔮 Future Improvements
+
+Possible future improvements include:
+
+* Automated detection and remediation for IAM credential creation
+* Automated response to CloudTrail tampering
+* GuardDuty integration
+* Security Hub integration
+* Additional cloud attack scenarios
+* Privilege-escalation detection
+* Centralized security dashboards
+* Detection-latency measurements
+* Integration with a SIEM/SOAR platform
+* More detailed incident timelines
+
+---
+
+# 🧹 Teardown
+
+Since the entire lab is managed through Terraform, I can remove the infrastructure after testing to avoid unnecessary AWS costs:
+
+```bash
 terraform destroy -auto-approve
+```
+
+This also makes the lab reproducible because I can provision the environment again whenever I want.
+
+---
+
+## Project Summary
+
+The final version of this lab allowed me to work through a small but complete cloud-security workflow:
+
+```text
+Build Infrastructure
+        ↓
+Perform Controlled Security Activity
+        ↓
+Collect Cloud Telemetry
+        ↓
+Detect Activity
+        ↓
+Investigate Events
+        ↓
+Respond Automatically
+        ↓
+Verify the Result
+```
+
+The main thing I wanted to learn was not simply how to deploy AWS services, but how **cloud infrastructure, security telemetry, detection, investigation, and automated response fit together**.
