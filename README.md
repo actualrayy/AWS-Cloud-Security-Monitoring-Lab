@@ -1,65 +1,121 @@
-# AWS Cloud Security & Telemetry Lab
+AWS Cloud Security & Purple Team Automation Lab
+This repository contains a hands-on Purple Team lab I built to test automated threat detection and incident response in AWS. I used Terraform to provision the infrastructure as code (IaC) and wrote a custom Python (Boto3) Lambda function to act as the Blue Team, automatically reverting insecure environment changes in near real-time.
 
-I built this lab to get hands-on experience with Infrastructure as Code (IaC) and cloud security monitoring on AWS. The goal was to provision a clean network setup, run basic Red Team reconnaissance against an EC2 target, and verify that Blue Team logging captures every API call in real time.
+The goal of this project was to execute Red Team attacks mapped to the MITRE ATT&CK framework and prove that event-driven architecture can neutralize threats faster than manual human intervention.
 
----
+🏗️ Architecture Overview
+Here is a high-level look at the event pipeline I set up:
 
-## Architecture
+Plaintext
+[ Red Team Attack (AWS CLI) ] 
+          │
+          ▼
+    [ AWS CloudTrail ] (Logs the API call)
+          │
+          ▼
+   [ Amazon EventBridge ] (Filters for specific attack patterns)
+          │
+          ▼
+     [ AWS Lambda ] (My Python remediation script)
+          │
+          ▼
+ [ Target Resource ] (Lambda instantly secures the resource)
+🚀 Lab Scenarios & Execution
+Scenario A: Network Ingress Exposure & Automated Remediation
+MITRE ATT&CK: T1190 — Exploit Public-Facing Application
 
-Here is how the environment is structured:
+The Attack: I acted as the Red Team by injecting a rogue ingress rule into my web server's security group, exposing MySQL (Port 3306) to the entire public internet (0.0.0.0/0).
 
-* **Network:** Custom VPC (`10.0.0.0/16`) with isolated public (`10.0.1.0/24`) and private (`10.0.2.0/24`) subnets behind an Internet Gateway.
-* **Target Server:** An Ubuntu 22.04 EC2 instance (`t3.micro`) automatically bootstrapped with Nginx using Terraform `user_data`.
-* **Security Controls:** Security Group limiting inbound access strictly to HTTP (Port 80) and SSH (Port 22).
-* **Logging Pipeline:** Multi-region AWS CloudTrail forwarding all management plane events into a locked-down S3 bucket (public access blocked, bucket policies enforced).
+The Defense: EventBridge caught the AuthorizeSecurityGroupIngress API call in CloudTrail and instantly triggered my Lambda function. The Python script extracted the security group ID and the specific rogue port, and automatically issued a revoke command.
 
----
+Evidence & Verification:
 
-## Tools Used
+Executing the Red Team Attack:
 
-* **IaC:** Terraform
-* **Cloud Platform:** AWS (EC2, VPC, CloudTrail, S3, IAM, Security Groups)
-* **Target Services:** Nginx, Ubuntu 22.04 LTS
-* **CLI Tools:** AWS CLI, Bash
+Verifying the Blue Team Automation (Port 3306 is gone):
 
----
+CloudWatch Logs showing the Python execution success:
 
-## What I Did
+Scenario B: Defense Evasion (Telemetry Blinding)
+MITRE ATT&CK: T1562.001 — Impair Defences: Disable or Modify Tools
 
-1. **Built the Telemetry Baseline:** Wrote Terraform modules to spin up an S3 log bucket and configured CloudTrail to log API calls across all regions.
-2. **Deployed the Network & Target:** Provisioned the VPC, subnets, route tables, and the Nginx EC2 target instance in a single deployment run.
-3. **Simulated Red Team Reconnaissance:** Used the AWS CLI (`aws ec2 describe-instances`) to query target instance details and simulate initial cloud enumeration.
-4. **Verified Blue Team Audit Logs:** Inspected CloudTrail telemetry in the console and confirmed that the raw `.json.gz` log files were successfully saved into the S3 bucket with full IAM and IP details.
+The Attack: To simulate an attacker covering their tracks, I disabled my active CloudTrail stream using aws cloudtrail stop-logging.
 
----
+The Defense: I queried the trail status to confirm IsLogging dropped to false, simulating the monitoring blind spot, before manually restoring the telemetry baseline so the Blue Team operations could resume.
 
-## Screenshots & Proof
+Evidence:
 
-### 1. Terraform Infrastructure Provisioning
-Successfully spun up all 12 AWS resources with Terraform outputs.
-![Terraform Outputs](01-terraform-outputs.png)
+Shutting down CloudTrail:
 
-### 2. Nginx Target Verification
-Confirmed the web target was bootstrapped and reachable via HTTP (`200 OK`).
-![Target Verification](02-target-http-verification.png)
+Scenario C: IAM Persistence
+MITRE ATT&CK: T1098.001 — Account Manipulation: Additional Credentials
 
-### 3. Red Team API Reconnaissance
-Executed discovery calls against the EC2 management plane using the AWS CLI.
-![Red Team Recon](03-redteam-recon-ec2-api.png)
+The Attack: I simulated an attacker establishing persistent backdoor access by generating a set of long-term IAM access keys for a compromised user account using the CLI.
 
-### 4. CloudTrail Telemetry Capture
-Verified that CloudTrail caught the API calls with exact timestamps, source IPs, and IAM identities.
-![CloudTrail Telemetry](04-blueteam-cloudtrail-telemetry.png)
+Evidence:
 
-### 5. S3 Log Delivery
-Checked the dedicated S3 bucket to ensure raw CloudTrail logs were being delivered cleanly.
-![S3 Raw Logs](05-s3-cloudtrail-raw-logs.png)
+Generating rogue access keys:
 
----
+🛠️ Technology Stack
+Infrastructure as Code: Terraform (AWS Provider v6.47.0)
 
-## Teardown
+Cloud Platform: Amazon Web Services (AWS)
 
-Since the entire lab is managed through Terraform, tearing everything down to avoid AWS costs took just one command:
+Compute / Scripting: AWS Lambda (Python 3.10)
 
-```bash
+Monitoring & Routing: Amazon EventBridge, AWS CloudTrail, Amazon CloudWatch
+
+Environment: Ubuntu Linux, AWS CLI v2
+
+📜 Automated Remediation Logic
+Here is the core Python logic I wrote for the Lambda function. It parses the nested JSON payload from CloudTrail, maps the keys to what Boto3 expects, and revokes the specific rule without touching legitimate traffic like ports 80 or 22.
+
+Python
+import boto3
+
+def lambda_handler(event, context):
+    ec2 = boto3.client('ec2')
+    detail = event.get('detail', {})
+    
+    if detail.get('eventName') == 'AuthorizeSecurityGroupIngress':
+        group_id = detail['requestParameters']['groupId']
+        items = detail['requestParameters']['ipPermissions']['items']
+        
+        print(f"🚨 ALERT: Unauthorized ingress rule added to {group_id}. Reverting...")
+        
+        for item in items:
+            try:
+                protocol = item.get('ipProtocol', '-1')
+                from_port = item.get('fromPort')
+                to_port = item.get('toPort')
+                
+                ip_ranges = [
+                    {'CidrIp': r['cidrIp']} 
+                    for r in item.get('ipRanges', {}).get('items', []) 
+                    if 'cidrIp' in r
+                ]
+                
+                permission = {
+                    'IpProtocol': str(protocol),
+                    'IpRanges': ip_ranges
+                }
+                if from_port is not None:
+                    permission['FromPort'] = int(from_port)
+                if to_port is not None:
+                    permission['ToPort'] = int(to_port)
+                    
+                response = ec2.revoke_security_group_ingress(
+                    GroupId=group_id,
+                    IpPermissions=[permission]
+                )
+                print(f"✅ SUCCESS: Automatically reverted rogue rule: {response}")
+                return {"status": "success"}
+                
+            except Exception as e:
+                print(f"❌ ERROR: Failed to revert rule: {e}")
+                return {"status": "error", "message": str(e)}
+🧹 Infrastructure Clean-Up
+To prevent unexpected billing on my AWS account, I destroyed all the provisioned infrastructure once the lab scenarios were completed:
+
+Bash
 terraform destroy -auto-approve
