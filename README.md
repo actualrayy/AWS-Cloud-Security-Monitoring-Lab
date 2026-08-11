@@ -1,9 +1,8 @@
-
 # AWS Cloud Security & Purple Team Automation Lab
 
-I built this lab to get hands-on experience with Infrastructure as Code (IaC) and cloud security monitoring on AWS. I started by building a small AWS environment with Terraform, then used it to simulate different security-related activities and see how they appeared in AWS telemetry.
+I built this lab to get hands-on experience with Infrastructure as Code (IaC) and cloud security monitoring on AWS.
 
-I later extended the lab with EventBridge and a Python Lambda function so that selected security events could trigger an automated response.
+I started by building a small AWS environment with Terraform, then used it to simulate different security-related activities and see how they appeared from the Blue Team perspective. I later extended the lab with Amazon EventBridge and a Python Lambda function so that selected security events could trigger an automated response.
 
 The overall goal was to understand the workflow from both sides:
 
@@ -11,13 +10,13 @@ The overall goal was to understand the workflow from both sides:
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
-The environment is structured around a custom VPC and an AWS logging and response pipeline:
+The environment is structured around a custom VPC and an AWS logging and response pipeline.
 
 * **Network:** Custom VPC (`10.0.0.0/16`) with public (`10.0.1.0/24`) and private (`10.0.2.0/24`) subnets behind an Internet Gateway.
-* **Target Server:** An Ubuntu 22.04 EC2 instance (`t3.micro`) automatically bootstrapped with Nginx using Terraform `user_data`.
-* **Security Controls:** Security Group controlling inbound access to the target.
+* **Target Server:** Ubuntu 22.04 EC2 instance (`t3.micro`) automatically bootstrapped with Nginx using Terraform `user_data`.
+* **Security Controls:** Security Groups controlling inbound access to the target.
 * **Infrastructure:** Terraform manages the AWS resources so the lab can be recreated and destroyed when needed.
 * **Logging:** Multi-region AWS CloudTrail records management-plane activity and delivers the logs to a locked-down S3 bucket.
 * **Detection:** Amazon EventBridge filters selected CloudTrail events.
@@ -44,9 +43,9 @@ The environment is structured around a custom VPC and an AWS logging and respons
 
 ---
 
-## Tools Used
+## 🛠️ Tools Used
 
-* **IaC:** Terraform
+* **Infrastructure as Code:** Terraform
 * **Cloud Platform:** AWS
 * **Compute:** EC2, Lambda
 * **Networking:** VPC, Subnets, Route Tables, Internet Gateway, Security Groups
@@ -57,20 +56,21 @@ The environment is structured around a custom VPC and an AWS logging and respons
 * **Target Services:** Nginx, Ubuntu 22.04 LTS
 * **Programming:** Python, Boto3
 * **CLI Tools:** AWS CLI, Bash
+* **Security Framework:** MITRE ATT&CK
 
 ---
 
-## What I Did
+# 🔧 What I Did
 
-### 1. Built the Infrastructure
+## 1. Built the Infrastructure
 
 I used Terraform to provision the AWS environment, including:
 
 * VPC
-* public and private subnets
-* route tables
+* Public and private subnets
+* Route tables
 * Internet Gateway
-* security groups
+* Security Groups
 * EC2 instance
 * Nginx
 * S3 log bucket
@@ -80,23 +80,23 @@ The infrastructure could be created from scratch with Terraform rather than manu
 
 ---
 
-### 2. Built the Telemetry Baseline
+## 2. Built the Telemetry Baseline
 
 I configured AWS CloudTrail to record management-plane API activity across regions and deliver the logs to an S3 bucket.
 
 I verified that the CloudTrail `.json.gz` files were being delivered successfully and that the events contained information such as:
 
 * API calls
-* timestamps
-* source IP addresses
+* Timestamps
+* Source IP addresses
 * IAM identities
-* request parameters
+* Request parameters
 
 This gave me a baseline for investigating activity performed against the environment.
 
 ---
 
-### 3. Simulated Cloud Reconnaissance
+## 3. Simulated Cloud Reconnaissance
 
 I used the AWS CLI to perform basic reconnaissance against the environment.
 
@@ -193,6 +193,8 @@ The experiment successfully demonstrated the monitoring gap created when CloudTr
 
 This scenario is currently a demonstration rather than a fully automated defense.
 
+**MITRE ATT&CK:** T1685.002 — Disable or Modify Cloud Log
+
 ---
 
 ## Scenario C — IAM Persistence
@@ -207,13 +209,15 @@ The purpose was to investigate what this type of activity looks like from the Bl
 
 I used CloudTrail to examine the resulting event and identify:
 
-* the IAM identity involved
-* the API call
-* timestamp
-* source IP
-* affected IAM resource
+* The IAM identity involved
+* The API call
+* Timestamp
+* Source IP
+* Affected IAM resource
 
 This gave me a practical example of how IAM activity can be investigated through AWS management-plane telemetry.
+
+**MITRE ATT&CK:** T1098.001 — Additional Cloud Credentials
 
 ---
 
@@ -281,45 +285,102 @@ One part I had to pay attention to was the structure of the CloudTrail event. Th
 
 # 📸 Screenshots & Proof
 
-### 1. Terraform Infrastructure Provisioning
+The following screenshots document the main stages of the lab, from infrastructure deployment to security testing and automated remediation.
 
-Successfully provisioned the AWS infrastructure using Terraform.
+## 1. Terraform Infrastructure Provisioning
 
-### 2. Nginx Target Verification
+The AWS environment was successfully provisioned using Terraform.
 
-Confirmed that the Nginx web server was automatically installed and reachable over HTTP with a `200 OK` response.
+![Terraform infrastructure provisioning](screenshots/01-terraform-outputs.png)
 
-### 3. Red Team API Reconnaissance
+---
 
-Executed AWS CLI discovery calls against the test environment.
+## 2. Nginx Target Verification
 
-### 4. CloudTrail Telemetry Capture
+The EC2 target was successfully bootstrapped with Nginx and returned a `200 OK` response.
 
-Verified that the API activity appeared in CloudTrail with timestamps, source IPs, and IAM identity information.
+![Nginx HTTP verification](screenshots/02-target-http-verification.png)
 
-### 5. S3 Log Delivery
+---
 
-Verified that the raw CloudTrail `.json.gz` files were being delivered to the S3 bucket.
+## 3. Red Team AWS Reconnaissance
 
-### 6. Security Group Detection
+I used the AWS CLI to perform basic EC2 reconnaissance against the test environment.
 
-Captured the unauthorized `AuthorizeSecurityGroupIngress` event that triggered the detection workflow.
+![EC2 API reconnaissance](screenshots/03-redteam-recon-ec2-api.png)
 
-### 7. Automated Remediation
+---
 
-Verified through the Lambda logs and AWS console that the unwanted `3306` rule was removed.
+## 4. CloudTrail Telemetry
 
-### 8. CloudTrail Defense-Evasion Test
+The reconnaissance activity was recorded by CloudTrail with information such as the API call, IAM identity, source IP, and timestamp.
 
-Captured the CloudTrail status showing:
+![CloudTrail telemetry](screenshots/04-blueteam-cloudtrail-telemetry.png)
 
-```text
-IsLogging: false
-```
+---
 
-### 9. IAM Activity Investigation
+## 5. CloudTrail Logs in S3
 
-Captured the CloudTrail event generated by the test IAM credential-creation activity.
+The raw CloudTrail `.json.gz` files were successfully delivered to the dedicated S3 bucket.
+
+![CloudTrail S3 logs](screenshots/05-s3-cloudtrail-raw-logs.png)
+
+---
+
+## 6. Red Team Security Group Modification
+
+I simulated an unauthorized security-group change by adding an inbound rule exposing TCP port `3306` to the public internet.
+
+![Red team ingress attack](screenshots/06-redteam-ingress-attack.png)
+
+---
+
+## 7. Automated Remediation Verification
+
+The unauthorized security-group rule was automatically removed by the Lambda remediation function.
+
+![Blue team remediation verification](screenshots/07-blueteam-remediation-verify.png)
+
+---
+
+## 8. Lambda Execution Logs
+
+CloudWatch logs show the Lambda function receiving the event and successfully executing the remediation logic.
+
+![CloudWatch Lambda logs](screenshots/08-cloudwatch-lambda-logs.png)
+
+---
+
+## 9. CloudTrail Defense-Evasion Test
+
+I simulated an attempt to blind the monitoring system by stopping CloudTrail logging.
+
+![CloudTrail logging disabled](screenshots/09-redteam-stoplogging-evasion.png)
+
+**MITRE ATT&CK:** T1685.002 — Disable or Modify Cloud Log
+
+---
+
+## 10. IAM Persistence Test
+
+I simulated persistence by creating an additional IAM access key for a test identity.
+
+![IAM persistence test](screenshots/10-redteam-iam-persistence-key.png)
+
+**MITRE ATT&CK:** T1098.001 — Additional Cloud Credentials
+
+---
+
+# 🎯 MITRE ATT&CK Coverage
+
+Two of the simulated scenarios were mapped to specific MITRE ATT&CK techniques:
+
+| Scenario                    | MITRE ATT&CK | Technique                    |
+| --------------------------- | ------------ | ---------------------------- |
+| CloudTrail logging disabled | T1685.002    | Disable or Modify Cloud Log  |
+| IAM access-key creation     | T1098.001    | Additional Cloud Credentials |
+
+The security-group scenario focuses on AWS security-group modification and automated remediation rather than forcing an ATT&CK technique mapping where the behavior does not cleanly correspond to one.
 
 ---
 
@@ -333,7 +394,7 @@ One thing I found particularly useful was seeing how a relatively simple AWS act
 
 I also learned how EventBridge and Lambda can be combined to react to security-related activity without requiring a continuously running server.
 
-The CloudTrail test also showed me the other side of monitoring: if the logging mechanism itself is disabled, the visibility it provides can disappear. That made the difference between simply collecting logs and actually designing a resilient security monitoring system much clearer to me.
+The CloudTrail test also showed me the other side of monitoring: if the logging mechanism itself is disabled, the visibility it provides can disappear. That made the difference between simply collecting logs and actually designing a more resilient security monitoring system much clearer to me.
 
 ---
 
@@ -403,3 +464,4 @@ Verify the Result
 ```
 
 The main thing I wanted to learn was not simply how to deploy AWS services, but how **cloud infrastructure, security telemetry, detection, investigation, and automated response fit together**.
+
